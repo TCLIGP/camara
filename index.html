@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0a0a0f" />
+<title>SecuCam · Cámara de seguridad por WebRTC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --bg-elev: #14141c;
+    --bg-elev-2: #1c1c26;
+    --border: #2a2a38;
+    --text: #ededf0;
+    --text-dim: #8a8a99;
+    --accent: #d4ff3a;
+    --accent-dim: #6f8a1e;
+    --danger: #ff5a4d;
+    --ok: #3affa0;
+    --warn: #ffb84d;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --font-sans: 'Manrope', system-ui, sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+  body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(212, 255, 58, 0.08), transparent 60%),
+      radial-gradient(800px 400px at -10% 110%, rgba(58, 200, 255, 0.06), transparent 60%),
+      var(--bg);
+    padding: 20px 16px 60px;
+  }
+  .container { max-width: 720px; margin: 0 auto; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 4px 24px;
+    border-bottom: 1px dashed var(--border);
+    margin-bottom: 28px;
+  }
+  .brand {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .brand .dot {
+    display: inline-block; width: 8px; height: 8px;
+    background: var(--accent); border-radius: 50%;
+    margin-right: 8px; box-shadow: 0 0 12px var(--accent);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  .brand .dot.connected { background: var(--ok); box-shadow: 0 0 12px var(--ok); }
+  .brand .dot.error { background: var(--danger); box-shadow: 0 0 12px var(--danger); animation: none; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+  .clock {
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--text-dim);
+    letter-spacing: 0.12em;
+  }
+
+  h1 {
+    font-weight: 800;
+    font-size: clamp(28px, 7vw, 42px);
+    line-height: 1.05; letter-spacing: -0.02em;
+    margin: 0 0 8px;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 14px; line-height: 1.55;
+    margin: 0 0 32px; max-width: 100%;
+  }
+
+  /* ================ SELECTOR ================ */
+  .role-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 480px) {
+    .role-grid { grid-template-columns: 1fr; }
+  }
+  .role-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 24px 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    appearance: none;
+    position: relative;
+    overflow: hidden;
+  }
+  .role-card::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    background: linear-gradient(135deg, transparent 60%, rgba(212, 255, 58, 0.15));
+    border-radius: 18px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+  }
+  .role-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+  .role-card:hover::before { opacity: 1; }
+  .role-card .icon {
+    font-size: 32px; margin-bottom: 14px;
+    display: inline-block;
+  }
+  .role-card .label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .role-card .title {
+    font-weight: 800;
+    font-size: 20px;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+  }
+  .role-card .desc {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  /* ================ VIDEO ================ */
+  .video-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin-bottom: 14px;
+  }
+  .video-wrap.cam-mode { aspect-ratio: 4 / 3; }
+  video {
+    width: 100%; height: 100%;
+    object-fit: cover; background: #000;
+  }
+  .video-overlay {
+    position: absolute;
+    pointer-events: none;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    letter-spacing: 0.08em;
+  }
+  .ts-top-left { top: 12px; left: 12px; }
+  .ts-top-right { top: 12px; right: 12px; }
+  .ts-bottom-left { bottom: 12px; left: 12px; }
+  .ts-bottom-right { bottom: 12px; right: 12px; text-align: right; }
+
+  .rec-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    background: var(--danger);
+    border-radius: 50%;
+    margin-right: 6px;
+    animation: blink 1.2s ease-in-out infinite;
+    vertical-align: middle;
+    box-shadow: 0 0 8px var(--danger);
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .video-placeholder {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-align: center;
+    padding: 20px;
+    background:
+      repeating-linear-gradient(
+        45deg,
+        rgba(255,255,255,0.01) 0px,
+        rgba(255,255,255,0.01) 2px,
+        transparent 2px,
+        transparent 8px
+      ),
+      #000;
+  }
+  .video-placeholder .spinner {
+    width: 28px; height: 28px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ================ COMPONENTES ================ */
+  .module {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 18px;
+    margin-bottom: 14px;
+  }
+  .module-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .module-title {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--text-dim);
+  }
+  .module-title .num { color: var(--accent); font-weight: 700; }
+
+  .status {
+    font-family: var(--font-mono);
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--bg-elev-2);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .status.on { color: var(--ok); border-color: rgba(58, 255, 160, 0.3); }
+  .status.off { color: var(--text-dim); }
+  .status.err { color: var(--danger); border-color: rgba(255, 90, 77, 0.3); }
+  .status.warn { color: var(--warn); border-color: rgba(255, 184, 77, 0.3); }
+
+  /* CÓDIGO de conexión grande */
+  .code-display {
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    text-align: center;
+    margin-bottom: 14px;
+  }
+  .code-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .code-value {
+    font-family: var(--font-mono);
+    font-size: clamp(36px, 12vw, 64px);
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.18em;
+    line-height: 1;
+    margin-bottom: 6px;
+    text-shadow: 0 0 24px rgba(212, 255, 58, 0.3);
+    word-break: break-all;
+  }
+  .code-hint {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 12px;
+    line-height: 1.5;
+  }
+
+  .qr-wrap {
+    display: flex; justify-content: center; align-items: center;
+    margin: 12px auto 0;
+    padding: 12px;
+    background: #fff;
+    border-radius: 10px;
+    width: fit-content;
+  }
+  .qr-wrap canvas, .qr-wrap img { display: block; }
+  .qr-caption {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    text-align: center;
+    margin-top: 10px;
+  }
+
+  /* INPUT de código */
+  .code-input-wrap {
+    margin-bottom: 14px;
+  }
+  input.code-input {
+    width: 100%;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: clamp(24px, 7vw, 36px);
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: 0.18em;
+    padding: 18px;
+    border-radius: 12px;
+    outline: none;
+    transition: border-color 0.2s;
+    text-transform: uppercase;
+  }
+  input.code-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(212, 255, 58, 0.15);
+  }
+  input.code-input::placeholder {
+    color: var(--text-dim);
+    font-weight: 400;
+    letter-spacing: 0.1em;
+  }
+
+  /* BOTONES */
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button.btn {
+    flex: 1; min-width: 0;
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--bg-elev-2);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 14px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-weight: 500;
+  }
+  button.btn:hover { background: #23232f; }
+  button.btn:active { transform: scale(0.98); }
+  button.btn.primary {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+  button.btn.primary:hover { background: #c4ee20; }
+  button.btn.danger {
+    border-color: rgba(255, 90, 77, 0.4);
+    color: var(--danger);
+  }
+  button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ESTADÍSTICAS */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .stat {
+    background: var(--bg-elev-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .stat-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .stat-value.dim { color: var(--text-dim); font-weight: 500; font-size: 14px; }
+
+  .notice {
+    background: rgba(212, 255, 58, 0.06);
+    border: 1px solid rgba(212, 255, 58, 0.2);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    line-height: 1.55;
+    color: #e8f5b8;
+  }
+  .notice.error {
+    background: rgba(255, 90, 77, 0.08);
+    border-color: rgba(255, 90, 77, 0.3);
+    color: #ffb8b3;
+  }
+  .notice.warn {
+    background: rgba(255, 184, 77, 0.06);
+    border-color: rgba(255, 184, 77, 0.25);
+    color: #ffd9a8;
+  }
+  .notice b { color: var(--accent); font-weight: 700; }
+  .notice.error b { color: var(--danger); }
+  .notice.warn b { color: var(--warn); }
+  .notice code {
+    font-family: var(--font-mono);
+    background: rgba(0,0,0,0.3);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+
+  .back-btn {
+    background: none; border: none; color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 0;
+    margin-bottom: 18px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .back-btn:hover { color: var(--accent); }
+
+  footer {
+    text-align: center;
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px dashed var(--border);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .hidden { display: none !important; }
+
+  /* Loaders en placeholder */
+  .ph-msg { max-width: 80%; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="brand"><span class="dot" id="brandDot"></span>SecuCam · WebRTC</div>
+    <div class="clock" id="clock">--:--:--</div>
+  </header>
+
+  <!-- ============ PANTALLA: SELECTOR DE ROL ============ -->
+  <section id="screen-select">
+    <h1>Tu teléfono como <em>cámara de seguridad</em></h1>
+    <p class="subtitle">Convertí cualquier celular viejo en una cámara IP. El video va directo del teléfono a tu PC sin pasar por ningún servidor — peer-to-peer con WebRTC.</p>
+
+    <div class="role-grid">
+      <button class="role-card" id="goCam">
+        <div class="icon">📱</div>
+        <div class="label">Modo emisor</div>
+        <div class="title">Soy la cámara</div>
+        <div class="desc">Abrí esto en el teléfono que vas a usar como cámara. Te va a dar un código.</div>
+      </button>
+      <button class="role-card" id="goView">
+        <div class="icon">🖥️</div>
+        <div class="label">Modo receptor</div>
+        <div class="title">Soy el visor</div>
+        <div class="desc">Abrí esto en tu PC para ver y escuchar lo que captura el teléfono.</div>
+      </button>
+    </div>
+
+    <div class="notice">
+      <b>Importante:</b> esta página debe estar servida por <b>HTTPS</b> para que los navegadores te permitan usar cámara/mic. Hosteala gratis en Netlify Drop, GitHub Pages, Vercel, etc.
+    </div>
+  </section>
+
+  <!-- ============ PANTALLA: CÁMARA ============ -->
+  <section id="screen-cam" class="hidden">
+    <button class="back-btn" data-back>← Volver</button>
+    <h1>Modo <em>cámara</em></h1>
+    <p class="subtitle">Compartí este código con tu visor. La pantalla queda activa para no cortar la transmisión.</p>
+
+    <div id="camHttpsNotice" class="notice error hidden">
+      <b>⚠ Sin HTTPS:</b> los navegadores móviles bloquean cámara y micrófono. Subí esta página a un host con HTTPS.
+    </div>
+
+    <!-- Video local del celu -->
+    <div class="video-wrap cam-mode">
+      <video id="localVideo" autoplay playsinline muted></video>
+      <div class="video-placeholder" id="localPh">
+        <div class="spinner"></div>
+        <div class="ph-msg">Pidiendo permisos de cámara y micrófono…</div>
+      </div>
+      <div class="video-overlay ts-top-left" id="camOverlayTs"></div>
+      <div class="video-overlay ts-top-right" id="camOverlayRec"><span class="rec-dot"></span>LIVE</div>
+      <div class="video-overlay ts-bottom-right" id="camOverlayInfo"></div>
+    </div>
+
+    <!-- Código de conexión -->
+    <div class="module">
+      <div class="module-header">
+        <div class="module-title"><span class="num">01</span> Código de conexión</div>
+        <div class="status off" id="peerStatus">Iniciando…</div>
+      </div>
+
+      <div class="code-display">
+        <div class="code-label">Tu código</div>
+        <div class="code-value" id="codeValue">·····</div>
+        <div class="code-hint">Escribilo en la PC al elegir <b>"Soy el visor"</b>, o escaneá el QR.</div>
+      </div>
+
+      <div class="qr-wrap" id="qrWrap" style="display:none;">
+        <canvas id="qrCanvas"></canvas>
+      </div>
+      <div class="qr-caption" id="qrCaption" style="display:none;">Escaneá para abrir el visor directo</div>
+    </div>
+
+    <!-- Controles cámara -->
+    <div class="module">
+      <div class="module-header">
+        <div class="module-title"><span class="num">02</span> Controles</div>
+        <div class="status off" id="viewerStatus">Sin visor</div>
+      </div>
+
+      <div class="btn-row" style="margin-bottom: 10px;">
+        <button class="btn" id="switchCam">🔄 Cambiar cámara</button>
+        <button class="btn" id="toggleMic">🎤 Mic</button>
+        <button class="btn" id="toggleFlash" disabled>💡 Flash</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn danger" id="stopCam">Detener</button>
+      </div>
+    </div>
+
+    <!-- Stats del emisor -->
+    <div class="module">
+      <div class="module-header">
+        <div class="module-title"><span class="num">03</span> Estado del dispositivo</div>
+      </div>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">Resolución</div>
+          <div class="stat-value dim" id="statResolution">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Cámara</div>
+          <div class="stat-value dim" id="statFacing">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Batería</div>
+          <div class="stat-value dim" id="statBattery">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Wake Lock</div>
+          <div class="stat-value dim" id="statWake">—</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PANTALLA: VISOR ============ -->
+  <section id="screen-view" class="hidden">
+    <button class="back-btn" data-back>← Volver</button>
+    <h1>Modo <em>visor</em></h1>
+    <p class="subtitle">Ingresá el código que aparece en el teléfono.</p>
+
+    <!-- Form de código -->
+    <div class="module" id="viewForm">
+      <div class="module-header">
+        <div class="module-title"><span class="num">01</span> Conectar</div>
+        <div class="status off" id="viewPeerStatus">Iniciando…</div>
+      </div>
+
+      <div class="code-input-wrap">
+        <input type="text" id="codeInput" class="code-input" placeholder="ABCDE" maxlength="5" autocomplete="off" autocapitalize="characters" />
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" id="connectBtn" disabled>Conectar</button>
+      </div>
+    </div>
+
+    <!-- Stream remoto -->
+    <div id="viewStream" class="hidden">
+      <div class="video-wrap">
+        <video id="remoteVideo" autoplay playsinline></video>
+        <div class="video-placeholder" id="remotePh">
+          <div class="spinner"></div>
+          <div class="ph-msg">Conectando con la cámara…</div>
+        </div>
+        <div class="video-overlay ts-top-left" id="viewTs"></div>
+        <div class="video-overlay ts-top-right" id="viewRec"><span class="rec-dot"></span>LIVE</div>
+        <div class="video-overlay ts-bottom-right" id="viewInfo"></div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-title"><span class="num">02</span> Controles del visor</div>
+        </div>
+        <div class="btn-row" style="margin-bottom: 10px;">
+          <button class="btn" id="muteAudio">🔇 Silenciar audio</button>
+          <button class="btn" id="fullscreenBtn">⛶ Pantalla completa</button>
+          <button class="btn" id="snapView">📸 Captura</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn danger" id="disconnectBtn">Desconectar</button>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-title"><span class="num">03</span> Estadísticas</div>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label">Bitrate</div>
+            <div class="stat-value" id="statBitrate">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">FPS</div>
+            <div class="stat-value" id="statFps">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Resolución</div>
+            <div class="stat-value dim" id="statResRemote">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">RTT</div>
+            <div class="stat-value" id="statRtt">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    P2P · WebRTC · sin servidor de video
+  </footer>
+</div>
+
+<script>
+/* ================================================================
+   ESTADO Y UTILIDADES
+================================================================ */
+const PEER_PREFIX = 'secucam-9k4-'; // namespace para reducir colisiones en el broker público
+let peer = null;
+let localStream = null;
+let remoteStream = null;
+let activeCalls = []; // calls activas (en modo cámara)
+let currentCall = null; // call actual (en modo visor)
+let wakeLock = null;
+let useFront = false; // arrancamos con la trasera por defecto en modo cam (más útil para vigilancia)
+let statsTimer = null;
+let lastStatsBytes = 0;
+let lastStatsTime = 0;
+let lastFramesDecoded = 0;
+
+const $ = (s, ctx = document) => ctx.querySelector(s);
+const $$ = (s, ctx = document) => Array.from(ctx.querySelectorAll(s));
+
+function showScreen(id) {
+  ['screen-select', 'screen-cam', 'screen-view'].forEach(s => {
+    $('#' + s).classList.toggle('hidden', s !== id);
+  });
+  window.scrollTo(0, 0);
+}
+
+function setBrandStatus(state) {
+  const dot = $('#brandDot');
+  dot.classList.remove('connected', 'error');
+  if (state === 'connected') dot.classList.add('connected');
+  if (state === 'error') dot.classList.add('error');
+}
+
+function generateShortId() {
+  // Sin caracteres ambiguos (0/O, 1/I/L)
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  return Array.from({ length: 5 }, () => chars[(Math.random() * chars.length) | 0]).join('');
+}
+
+function fmtBytes(b) {
+  if (b < 1024) return b + ' B/s';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB/s';
+  return (b / 1024 / 1024).toFixed(2) + ' MB/s';
+}
+
+/* ================================================================
+   RELOJ Y OVERLAY
+================================================================ */
+function tick() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const ymd = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  $('#clock').textContent = hms;
+  const tsCam = $('#camOverlayTs');
+  const tsView = $('#viewTs');
+  if (tsCam) tsCam.textContent = `${ymd}  ${hms}`;
+  if (tsView) tsView.textContent = `${ymd}  ${hms}`;
+}
+setInterval(tick, 1000); tick();
+
+/* ================================================================
+   AVISO HTTPS
+================================================================ */
+const isSecure = location.protocol === 'https:' ||
+                 location.hostname === 'localhost' ||
+                 location.hostname === '127.0.0.1';
+
+/* ================================================================
+   BACK BUTTONS
+================================================================ */
+$$('[data-back]').forEach(b => b.addEventListener('click', () => {
+  cleanup();
+  showScreen('screen-select');
+}));
+
+function cleanup() {
+  // Cierra todo lo abierto
+  if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+  if (currentCall) { try { currentCall.close(); } catch(e){} currentCall = null; }
+  activeCalls.forEach(c => { try { c.close(); } catch(e){} });
+  activeCalls = [];
+  if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  if (remoteStream) {
+    remoteStream.getTracks().forEach(t => t.stop());
+    remoteStream = null;
+  }
+  if (wakeLock) { try { wakeLock.release(); } catch(e){} wakeLock = null; }
+  setBrandStatus('idle');
+}
+
+/* ================================================================
+   ===================== MODO CÁMARA ============================
+================================================================ */
+$('#goCam').addEventListener('click', startCamMode);
+
+async function startCamMode() {
+  showScreen('screen-cam');
+
+  if (!isSecure) {
+    $('#camHttpsNotice').classList.remove('hidden');
+  }
+
+  // 1. Pedir cámara y micrófono
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: useFront ? 'user' : 'environment' },
+      audio: true
+    });
+    $('#localVideo').srcObject = localStream;
+    $('#localPh').classList.add('hidden');
+    updateCamStats();
+  } catch (err) {
+    $('#localPh').innerHTML = `<div class="ph-msg" style="color: var(--danger)">No se pudo acceder a cámara/mic:<br>${err.message}</div>`;
+    setBrandStatus('error');
+    return;
+  }
+
+  // 2. Wake lock para que el celu no se duerma
+  requestWakeLock();
+
+  // 3. Crear peer con ID custom
+  initCamPeer();
+
+  // 4. Battery API
+  initBatteryStats();
+}
+
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      $('#statWake').textContent = 'Activo';
+      wakeLock.addEventListener('release', () => {
+        $('#statWake').textContent = 'Liberado';
+      });
+    } else {
+      $('#statWake').textContent = 'No soportado';
+    }
+  } catch (e) {
+    $('#statWake').textContent = 'Error';
+  }
+}
+
+// Re-pedir wake lock si la pantalla vuelve
+document.addEventListener('visibilitychange', () => {
+  if (wakeLock !== null && document.visibilityState === 'visible' && peer && !peer.destroyed) {
+    requestWakeLock();
+  }
+});
+
+function initCamPeer(retries = 0) {
+  const shortId = generateShortId();
+  const fullId = PEER_PREFIX + shortId.toLowerCase();
+
+  $('#peerStatus').textContent = 'Conectando…';
+  $('#peerStatus').className = 'status warn';
+
+  peer = new Peer(fullId, { debug: 1 });
+
+  peer.on('open', () => {
+    $('#codeValue').textContent = shortId;
+    $('#peerStatus').textContent = 'Listo';
+    $('#peerStatus').className = 'status on';
+    setBrandStatus('connected');
+    renderQR(shortId);
+  });
+
+  peer.on('call', (call) => {
+    // Un visor llama: contestamos con nuestro stream
+    call.answer(localStream);
+    activeCalls.push(call);
+    $('#viewerStatus').textContent = `${activeCalls.length} visor(es)`;
+    $('#viewerStatus').className = 'status on';
+
+    call.on('close', () => {
+      activeCalls = activeCalls.filter(c => c !== call);
+      const n = activeCalls.length;
+      $('#viewerStatus').textContent = n ? `${n} visor(es)` : 'Sin visor';
+      $('#viewerStatus').className = n ? 'status on' : 'status off';
+    });
+    call.on('error', (e) => {
+      console.warn('Call error:', e);
+    });
+  });
+
+  peer.on('error', (err) => {
+    console.error('Peer error:', err);
+    if (err.type === 'unavailable-id' && retries < 5) {
+      // Otro ya tomó este ID, probamos otro
+      try { peer.destroy(); } catch(e){}
+      setTimeout(() => initCamPeer(retries + 1), 300);
+      return;
+    }
+    $('#peerStatus').textContent = 'Error';
+    $('#peerStatus').className = 'status err';
+    setBrandStatus('error');
+  });
+
+  peer.on('disconnected', () => {
+    $('#peerStatus').textContent = 'Desconectado';
+    $('#peerStatus').className = 'status warn';
+    // Intentar reconectar
+    try { peer.reconnect(); } catch(e) {}
+  });
+}
+
+function renderQR(shortId) {
+  // Genera un link directo al modo visor con el id
+  const url = new URL(location.href);
+  url.searchParams.set('view', shortId);
+  url.hash = '';
+  const linkUrl = url.toString();
+
+  const canvas = $('#qrCanvas');
+  QRCode.toCanvas(canvas, linkUrl, { width: 180, margin: 1 }, (err) => {
+    if (!err) {
+      $('#qrWrap').style.display = 'flex';
+      $('#qrCaption').style.display = 'block';
+    }
+  });
+}
+
+function updateCamStats() {
+  const track = localStream && localStream.getVideoTracks()[0];
+  if (!track) return;
+  const s = track.getSettings();
+  $('#statResolution').textContent = (s.width && s.height) ? `${s.width}×${s.height}` : '—';
+  $('#statFacing').textContent = s.facingMode === 'user' ? 'Frontal' : (s.facingMode === 'environment' ? 'Trasera' : '—');
+  $('#camOverlayInfo').textContent = (s.width && s.height) ? `${s.width}×${s.height}` : '';
+
+  // Flash (linterna) si la cámara la soporta
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  $('#toggleFlash').disabled = !caps.torch;
+}
+
+async function initBatteryStats() {
+  try {
+    if (navigator.getBattery) {
+      const bat = await navigator.getBattery();
+      const update = () => {
+        const pct = Math.round(bat.level * 100);
+        const ico = bat.charging ? '⚡' : '';
+        $('#statBattery').textContent = `${pct}% ${ico}`;
+      };
+      update();
+      bat.addEventListener('levelchange', update);
+      bat.addEventListener('chargingchange', update);
+    } else {
+      $('#statBattery').textContent = 'No soportado';
+    }
+  } catch(e) {
+    $('#statBattery').textContent = '—';
+  }
+}
+
+$('#switchCam').addEventListener('click', async () => {
+  useFront = !useFront;
+  if (!localStream) return;
+  // Reiniciar tracks
+  localStream.getTracks().forEach(t => t.stop());
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: useFront ? 'user' : 'environment' },
+      audio: true
+    });
+    $('#localVideo').srcObject = localStream;
+    // Actualizar tracks en todas las llamadas activas
+    activeCalls.forEach(call => {
+      if (call.peerConnection) {
+        const senders = call.peerConnection.getSenders();
+        const newVideo = localStream.getVideoTracks()[0];
+        const newAudio = localStream.getAudioTracks()[0];
+        senders.forEach(sender => {
+          if (sender.track && sender.track.kind === 'video' && newVideo) sender.replaceTrack(newVideo);
+          if (sender.track && sender.track.kind === 'audio' && newAudio) sender.replaceTrack(newAudio);
+        });
+      }
+    });
+    updateCamStats();
+  } catch(err) {
+    alert('No se pudo cambiar de cámara: ' + err.message);
+  }
+});
+
+$('#toggleMic').addEventListener('click', (e) => {
+  if (!localStream) return;
+  const at = localStream.getAudioTracks()[0];
+  if (!at) return;
+  at.enabled = !at.enabled;
+  e.currentTarget.textContent = at.enabled ? '🎤 Mic' : '🔇 Mic OFF';
+});
+
+$('#toggleFlash').addEventListener('click', async (e) => {
+  if (!localStream) return;
+  const track = localStream.getVideoTracks()[0];
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  if (!caps.torch) return;
+  try {
+    const current = track.getSettings().torch || false;
+    await track.applyConstraints({ advanced: [{ torch: !current }] });
+    e.currentTarget.textContent = !current ? '💡 Flash ON' : '💡 Flash';
+  } catch(err) {
+    alert('No se pudo activar el flash: ' + err.message);
+  }
+});
+
+$('#stopCam').addEventListener('click', () => {
+  cleanup();
+  showScreen('screen-select');
+});
+
+/* ================================================================
+   ===================== MODO VISOR =============================
+================================================================ */
+$('#goView').addEventListener('click', () => startViewMode());
+
+function startViewMode(autoCode = null) {
+  showScreen('screen-view');
+  $('#viewForm').classList.remove('hidden');
+  $('#viewStream').classList.add('hidden');
+  $('#viewPeerStatus').textContent = 'Iniciando…';
+  $('#viewPeerStatus').className = 'status warn';
+
+  // Crear peer sin ID fijo (asignado por servidor)
+  peer = new Peer({ debug: 1 });
+
+  peer.on('open', () => {
+    $('#viewPeerStatus').textContent = 'Listo';
+    $('#viewPeerStatus').className = 'status on';
+    setBrandStatus('connected');
+    if (autoCode) {
+      $('#codeInput').value = autoCode.toUpperCase();
+      $('#connectBtn').disabled = false;
+      // auto-conectar
+      setTimeout(() => $('#connectBtn').click(), 300);
+    }
+  });
+
+  peer.on('error', (err) => {
+    console.error('Peer error:', err);
+    if (err.type === 'peer-unavailable') {
+      alert('Código no encontrado. Verificá que sea correcto y que la cámara esté activa.');
+      $('#connectBtn').disabled = false;
+      $('#connectBtn').textContent = 'Conectar';
+    } else {
+      $('#viewPeerStatus').textContent = 'Error';
+      $('#viewPeerStatus').className = 'status err';
+      setBrandStatus('error');
+    }
+  });
+}
+
+$('#codeInput').addEventListener('input', (e) => {
+  e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
+  $('#connectBtn').disabled = e.target.value.length !== 5;
+});
+
+$('#codeInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !$('#connectBtn').disabled) $('#connectBtn').click();
+});
+
+$('#connectBtn').addEventListener('click', () => {
+  const code = $('#codeInput').value.trim().toUpperCase();
+  if (code.length !== 5) return;
+  $('#connectBtn').disabled = true;
+  $('#connectBtn').textContent = 'Conectando…';
+
+  const targetId = PEER_PREFIX + code.toLowerCase();
+
+  // Stream "vacío" para satisfacer la API de PeerJS (visor no manda nada)
+  const dummy = createDummyStream();
+  currentCall = peer.call(targetId, dummy);
+
+  if (!currentCall) {
+    alert('No se pudo iniciar la llamada.');
+    $('#connectBtn').disabled = false;
+    $('#connectBtn').textContent = 'Conectar';
+    return;
+  }
+
+  currentCall.on('stream', (stream) => {
+    remoteStream = stream;
+    $('#remoteVideo').srcObject = stream;
+    $('#remotePh').classList.add('hidden');
+    $('#viewForm').classList.add('hidden');
+    $('#viewStream').classList.remove('hidden');
+    startStatsLoop();
+  });
+
+  currentCall.on('close', () => {
+    handleDisconnect();
+  });
+
+  currentCall.on('error', (err) => {
+    console.error('Call error:', err);
+    alert('Error en la llamada: ' + err);
+    handleDisconnect();
+  });
+
+  // Si no hay stream en 12s, asumimos que falló
+  setTimeout(() => {
+    if (currentCall && !remoteStream) {
+      alert('No respondió la cámara. Verificá el código.');
+      handleDisconnect();
+    }
+  }, 12000);
+});
+
+function createDummyStream() {
+  // Video 1x1 negro
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1;
+  canvas.getContext('2d').fillRect(0, 0, 1, 1);
+  const stream = canvas.captureStream(1);
+  return stream;
+}
+
+function handleDisconnect() {
+  if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+  if (currentCall) { try { currentCall.close(); } catch(e){} currentCall = null; }
+  if (remoteStream) {
+    remoteStream.getTracks().forEach(t => t.stop());
+    remoteStream = null;
+  }
+  $('#remoteVideo').srcObject = null;
+  $('#viewStream').classList.add('hidden');
+  $('#viewForm').classList.remove('hidden');
+  $('#connectBtn').disabled = false;
+  $('#connectBtn').textContent = 'Conectar';
+}
+
+$('#disconnectBtn').addEventListener('click', handleDisconnect);
+
+$('#muteAudio').addEventListener('click', (e) => {
+  const v = $('#remoteVideo');
+  v.muted = !v.muted;
+  e.currentTarget.textContent = v.muted ? '🔊 Activar audio' : '🔇 Silenciar audio';
+});
+
+$('#fullscreenBtn').addEventListener('click', () => {
+  const v = $('#remoteVideo');
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else {
+    (v.requestFullscreen || v.webkitRequestFullscreen || v.webkitEnterFullscreen).call(v);
+  }
+});
+
+$('#snapView').addEventListener('click', () => {
+  const v = $('#remoteVideo');
+  if (!v.videoWidth) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = v.videoWidth;
+  canvas.height = v.videoHeight;
+  canvas.getContext('2d').drawImage(v, 0, 0);
+  const a = document.createElement('a');
+  a.download = `secucam-${Date.now()}.png`;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+});
+
+/* ----- Estadísticas WebRTC ----- */
+function startStatsLoop() {
+  lastStatsBytes = 0;
+  lastStatsTime = performance.now();
+  lastFramesDecoded = 0;
+  if (statsTimer) clearInterval(statsTimer);
+  statsTimer = setInterval(updateStatsOnce, 1000);
+}
+
+async function updateStatsOnce() {
+  if (!currentCall || !currentCall.peerConnection) return;
+  const pc = currentCall.peerConnection;
+  try {
+    const stats = await pc.getStats();
+    let bytes = 0, framesDecoded = 0, w = 0, h = 0, rtt = 0;
+    stats.forEach(report => {
+      if (report.type === 'inbound-rtp' && (report.kind === 'video' || report.mediaType === 'video')) {
+        bytes += report.bytesReceived || 0;
+        framesDecoded = report.framesDecoded || 0;
+        w = report.frameWidth || w;
+        h = report.frameHeight || h;
+      }
+      if (report.type === 'inbound-rtp' && (report.kind === 'audio' || report.mediaType === 'audio')) {
+        bytes += report.bytesReceived || 0;
+      }
+      if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+        rtt = (report.currentRoundTripTime || 0) * 1000;
+      }
+      if (report.type === 'remote-candidate' && report.roundTripTime) {
+        rtt = report.roundTripTime * 1000;
+      }
+    });
+    const now = performance.now();
+    const dt = (now - lastStatsTime) / 1000;
+    const dBytes = bytes - lastStatsBytes;
+    const fps = Math.round((framesDecoded - lastFramesDecoded) / dt);
+    if (dt > 0 && lastStatsBytes > 0) {
+      $('#statBitrate').textContent = fmtBytes(dBytes / dt);
+      $('#statFps').textContent = isFinite(fps) ? fps : '—';
+    }
+    if (w && h) {
+      $('#statResRemote').textContent = `${w}×${h}`;
+      $('#viewInfo').textContent = `${w}×${h}`;
+    }
+    if (rtt) {
+      $('#statRtt').textContent = Math.round(rtt) + ' ms';
+    }
+    lastStatsBytes = bytes;
+    lastStatsTime = now;
+    lastFramesDecoded = framesDecoded;
+  } catch(e) {
+    /* ignorar */
+  }
+}
+
+/* ================================================================
+   AUTO-MODO desde URL ?view=XXXXX
+================================================================ */
+const params = new URLSearchParams(location.search);
+const autoView = params.get('view');
+if (autoView) {
+  startViewMode(autoView);
+}
+
+/* ================================================================
+   CLEANUP AL SALIR
+================================================================ */
+window.addEventListener('beforeunload', cleanup);
+</script>
+</body>
+</html>
